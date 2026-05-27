@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Билет — Я боюсь и делаю</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=Cormorant+Garamond:ital,wght@1,400;0,500&family=Manrope:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+  @page { size: A6 portrait; margin: 0; }
+  html, body {
+    margin: 0; padding: 0;
+    font-family: 'Manrope', sans-serif;
+    color: #1a1a1a;
+    background: #e9e3df;
+  }
+  .ticket {
+    width: 105mm;
+    height: 148mm;
+    background: #ffffff;
+    position: relative;
+    overflow: hidden;
+    margin: 16px auto;
+    box-shadow: 0 6px 24px rgba(120, 60, 50, 0.10);
+    display: flex;
+    flex-direction: column;
+    padding: 6mm 8mm 5mm;
+    box-sizing: border-box;
+  }
+
+  /* === Декор: бледно-розовые контурные цветы === */
+  .deco {
+    position: absolute;
+    pointer-events: none;
+    stroke: #c98b80;
+    stroke-width: 0.6;
+    fill: none;
+    opacity: 0.55;
+  }
+  .deco-tr { top: 1mm; right: 1mm; width: 26mm; }
+  .deco-bl { bottom: 1mm; left: 1mm; width: 26mm; transform: rotate(180deg); }
+
+  /* === Бренд === */
+  .brand { text-align: center; }
+  .brand .w-logo {
+    font-family: 'Manrope', sans-serif;
+    font-weight: 700;
+    font-size: 11mm;
+    line-height: 1;
+    color: #1a1a1a;
+  }
+  .brand .w-mark {
+    font-family: 'Manrope', sans-serif;
+    font-weight: 500;
+    font-size: 2mm;
+    letter-spacing: 1.4mm;
+    color: #1a1a1a;
+    margin-top: 1mm;
+    text-transform: uppercase;
+  }
+  .brand .w-year {
+    font-family: 'Manrope', sans-serif;
+    font-weight: 500;
+    font-size: 2.2mm;
+    letter-spacing: 0.4mm;
+    color: #8b1f30;
+    margin-top: 1mm;
+  }
+
+  /* === Заголовок === */
+  .title {
+    text-align: center;
+    margin-top: 4mm;
+  }
+  .title .small {
+    font-family: 'Manrope', sans-serif;
+    font-weight: 500;
+    font-size: 2.4mm;
+    letter-spacing: 0.8mm;
+    text-transform: uppercase;
+    color: #1a1a1a;
+  }
+  .title .slogan {
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic;
+    font-weight: 500;
+    font-size: 10mm;
+    color: #8b1f30;
+    margin-top: 1.5mm;
+    line-height: 1.1;
+    white-space: nowrap;
+  }
+
+  /* === Гостья === */
+  .guest {
+    text-align: center;
+    margin-top: 4mm;
+  }
+  .guest .label {
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic;
+    font-size: 2.6mm;
+    color: #8b1f30;
+    margin-bottom: 1mm;
+  }
+  .guest .name {
+    font-family: 'Manrope', sans-serif;
+    font-weight: 500;
+    font-size: 4.8mm;
+    color: #1a1a1a;
+  }
+
+  /* === Когда / где === */
+  .when {
+    text-align: center;
+    margin-top: 3mm;
+    font-family: 'Manrope', sans-serif;
+    font-size: 2.5mm;
+    color: #4a4a4a;
+    line-height: 1.5;
+  }
+  .when .date {
+    font-weight: 700;
+    color: #8b1f30;
+    font-size: 2.8mm;
+  }
+  .when .city {
+    text-transform: uppercase;
+    letter-spacing: 1mm;
+  }
+  .when .place {
+    font-size: 2.4mm;
+    color: #6a6a6a;
+  }
+
+  /* === Номер === */
+  .ticket-no {
+    text-align: center;
+    margin-top: 3mm;
+    font-family: 'Manrope', sans-serif;
+    font-weight: 400;
+    font-size: 2.6mm;
+    color: #1a1a1a;
+    letter-spacing: 1.2mm;
+  }
+  .ticket-no .sep { color: #c9a7a0; margin: 0 0.8mm; }
+
+  /* === QR === */
+  .qr-wrap {
+    display: flex;
+    justify-content: center;
+    margin-top: 2mm;
+  }
+  .qr {
+    width: 28mm;
+    height: 28mm;
+    background: #fff;
+    padding: 1.2mm;
+    border-radius: 0.6mm;
+    box-shadow: 0 1mm 2mm rgba(120, 60, 50, 0.08);
+  }
+  .qr img { width: 100%; height: 100%; display: block; }
+
+  /* === Подпись === */
+  .footer {
+    text-align: center;
+    margin-top: auto;
+    padding-top: 2mm;
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic;
+    font-size: 2.4mm;
+    color: #8b1f30;
+    line-height: 1.25;
+  }
+</style>
+</head>
+<body>
+
+<div class="ticket">
+
+  <!-- ===== Декор: эвкалиптовые веточки ===== -->
+  <svg class="deco deco-tr" viewBox="0 0 100 140" preserveAspectRatio="xMidYMid meet">
+    <path d="M 78 5 Q 65 35, 52 60 Q 42 88, 30 130" stroke-width="0.7"/>
+    <g>
+      <path d="M 75 12 C 80 10, 88 12, 90 18 C 84 22, 76 20, 75 14 Z" fill="#fff" stroke-width="0.6"/>
+      <path d="M 78 8 C 73 4, 65 4, 62 8 C 67 14, 76 14, 78 8 Z" fill="#fff" stroke-width="0.6"/>
+      <path d="M 65 28 C 72 28, 80 32, 80 38 C 72 40, 64 36, 65 30 Z" fill="#fff" stroke-width="0.6"/>
+      <path d="M 67 25 C 60 22, 52 24, 50 30 C 56 34, 65 32, 67 26 Z" fill="#fff" stroke-width="0.6"/>
+      <path d="M 56 52 C 64 53, 71 58, 70 64 C 62 65, 54 60, 56 54 Z" fill="#fff" stroke-width="0.6"/>
+      <path d="M 56 50 C 49 47, 41 50, 40 56 C 46 60, 55 58, 56 51 Z" fill="#fff" stroke-width="0.6"/>
+      <path d="M 47 76 C 55 78, 60 84, 58 90 C 50 90, 44 84, 47 78 Z" fill="#fff" stroke-width="0.6"/>
+      <path d="M 47 74 C 40 72, 33 76, 32 82 C 38 86, 47 84, 48 76 Z" fill="#fff" stroke-width="0.6"/>
+      <path d="M 38 102 C 45 105, 50 112, 48 118 C 40 118, 33 112, 36 104 Z" fill="#fff" stroke-width="0.6"/>
+      <path d="M 38 100 C 31 98, 24 102, 23 108 C 29 112, 38 110, 39 102 Z" fill="#fff" stroke-width="0.6"/>
+    </g>
+  </svg>
+
+  <svg class="deco deco-bl" viewBox="0 0 100 140" preserveAspectRatio="xMidYMid meet">
+    <path d="M 78 5 Q 65 35, 52 60 Q 42 88, 30 130" stroke-width="0.7"/>
+    <g>
+      <path d="M 75 12 C 80 10, 88 12, 90 18 C 84 22, 76 20, 75 14 Z" fill="#fff" stroke-width="0.6"/>
+      <path d="M 78 8 C 73 4, 65 4, 62 8 C 67 14, 76 14, 78 8 Z" fill="#fff" stroke-width="0.6"/>
+      <path d="M 65 28 C 72 28, 80 32, 80 38 C 72 40, 64 36, 65 30 Z" fill="#fff" stroke-width="0.6"/>
+      <path d="M 67 25 C 60 22, 52 24, 50 30 C 56 34, 65 32, 67 26 Z" fill="#fff" stroke-width="0.6"/>
+      <path d="M 56 52 C 64 53, 71 58, 70 64 C 62 65, 54 60, 56 54 Z" fill="#fff" stroke-width="0.6"/>
+      <path d="M 56 50 C 49 47, 41 50, 40 56 C 46 60, 55 58, 56 51 Z" fill="#fff" stroke-width="0.6"/>
+      <path d="M 47 76 C 55 78, 60 84, 58 90 C 50 90, 44 84, 47 78 Z" fill="#fff" stroke-width="0.6"/>
+      <path d="M 47 74 C 40 72, 33 76, 32 82 C 38 86, 47 84, 48 76 Z" fill="#fff" stroke-width="0.6"/>
+      <path d="M 38 102 C 45 105, 50 112, 48 118 C 40 118, 33 112, 36 104 Z" fill="#fff" stroke-width="0.6"/>
+      <path d="M 38 100 C 31 98, 24 102, 23 108 C 29 112, 38 110, 39 102 Z" fill="#fff" stroke-width="0.6"/>
+    </g>
+  </svg>
+
+  <!-- ===== Контент ===== -->
+  <div class="brand">
+    <div class="w-logo">W</div>
+    <div class="w-mark">Woman Create</div>
+    <div class="w-year">2026</div>
+  </div>
+
+  <div class="title">
+    <div class="small">Женский бизнес-фестиваль</div>
+    <div class="slogan">«Я боюсь и&nbsp;делаю!»</div>
+  </div>
+
+  <div class="guest">
+    <div class="label">приглашаем</div>
+    <div class="name">{{FIO}}</div>
+  </div>
+
+  <div class="when">
+    <div class="date">{{DATE_HUMAN}}</div>
+    <div class="city">{{CITY}}</div>
+  </div>
+
+  <div class="ticket-no">
+    {{TICKET_NUMBER_FORMATTED}}
+  </div>
+
+  <div class="qr-wrap">
+    <div class="qr">
+      <img src="{{QR_URL}}" alt="QR">
+    </div>
+  </div>
+
+  <div class="footer">
+    Пространство женской силы,<br>свободы и вдохновения
+  </div>
+</div>
+
+</body>
+</html>

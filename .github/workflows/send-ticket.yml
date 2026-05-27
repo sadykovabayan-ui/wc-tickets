@@ -1,0 +1,28 @@
+name: send-ticket (generate PDF + email)
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"   # каждые 5 минут (минимум для GitHub Actions cron)
+  workflow_dispatch:
+
+concurrency:
+  group: send-ticket
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Chromium for PDF rendering
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq chromium-browser fonts-liberation
+      - name: Run send_ticket.py
+        env:
+          AMOCRM_TOKEN: ${{ secrets.AMOCRM_TOKEN }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          WC_PROD_EMAIL: "1"
+          WC_CHROME_BIN: /usr/bin/chromium-browser
+        run: python3 send_ticket.py
