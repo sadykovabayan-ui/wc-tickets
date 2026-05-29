@@ -1,10 +1,11 @@
-name: send-ticket (generate PDF + email)
+name: send-ticket (dispatch + generate PDF + email)
 
 on:
   schedule:
-    - cron: "*/5 * * * *"   # каждые 5 минут (минимум для GitHub Actions cron)
+    - cron: "*/2 * * * *"   # каждые 2 минуты (репо публичный, лимитов CI нет)
   workflow_dispatch:
 
+# Защита от параллельных запусков того же workflow
 concurrency:
   group: send-ticket
   cancel-in-progress: false
@@ -19,6 +20,14 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq chromium-browser fonts-liberation
+      # ШАГ 1: страховка — раскидать сделки по городам (Алматы ↔ Астана).
+      # Запускается ПЕРЕД выпуском билета, чтобы гость гарантированно получил
+      # билет с правильным городом — даже если самостоятельный dispatch ещё не сработал.
+      - name: Pre-dispatch (страховка городов перед выпуском билетов)
+        env:
+          AMOCRM_TOKEN: ${{ secrets.AMOCRM_TOKEN }}
+        run: python3 move_astana.py
+      # ШАГ 2: выпуск билетов для сделок в «Оплачено»
       - name: Run send_ticket.py
         env:
           AMOCRM_TOKEN: ${{ secrets.AMOCRM_TOKEN }}
