@@ -2,7 +2,7 @@ name: dispatch (move leads to city pipelines)
 
 on:
   schedule:
-    - cron: "*/5 * * * *"   # каждые 5 минут
+    - cron: "* * * * *"     # каждую минуту — для быстрой страховки Алматы↔Астана
   workflow_dispatch:        # ручной запуск из UI
 
 concurrency:
