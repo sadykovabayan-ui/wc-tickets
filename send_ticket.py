@@ -72,6 +72,7 @@ FIELD_TICKET_NUMBER = 1173752       # Номер билета 2026 (text) — д
 FIELD_QR_LINK = 1166691             # Ссылка на QR билет (url)
 FIELD_TICKET_QTY = 1173814          # Количество билетов (numeric) — заполняется dispatch или вручную
 FIELD_PRODUCTS = 1166201            # PRODUCTS от Tilda Cart (тут "Купить билет - 4x15000 = 60000")
+FIELD_GUEST_NAMES = 1173816         # Имена гостей (textarea) — по строке на гостя
 # Email и ФИО — берутся из связанного контакта
 
 # Resend
@@ -271,6 +272,57 @@ def extract_email_phone_name(contact: dict):
     return name, email, phone
 
 
+def _looks_like_name(line: str) -> bool:
+    """Эвристика: строка похожа на ФИО (2+ слов кириллицей, нет цифр/email/спецсимволов)."""
+    s = line.strip()
+    if not s or len(s) < 4:
+        return False
+    if "@" in s or any(c.isdigit() for c in s):
+        return False
+    # Хотя бы 2 слова, начинающиеся с заглавной буквы
+    words = [w for w in re.split(r"\s+", s) if w]
+    if len(words) < 2:
+        return False
+    cap_words = sum(1 for w in words if w[:1].isupper())
+    return cap_words >= 2
+
+
+def extract_guest_names(lead: dict, lead_id: int, qty: int) -> list:
+    """Возвращает список имён гостей. Источники по приоритету:
+    1. FIELD_GUEST_NAMES (поле «Имена гостей», по строке/запятой)
+    2. Последнее common-примечание в сделке (парсим строки которые похожи на ФИО)
+    3. Пустой список → используется одно имя плательщика.
+    """
+    raw = ""
+    for cf in lead.get("custom_fields_values") or []:
+        if cf.get("field_id") == FIELD_GUEST_NAMES:
+            raw = (cf.get("values") or [{}])[0].get("value", "") or ""
+            break
+
+    candidate_lines = []
+    if raw:
+        # Разделители: перенос строки или ;
+        candidate_lines = re.split(r"[\n;]+", raw)
+    else:
+        # Парсим примечания (notes) сделки — берём самое свежее common-примечание
+        st, resp = amo("GET", f"/leads/{lead_id}/notes?limit=20&order[updated_at]=desc")
+        if st == 200 and resp:
+            for note in (resp.get("_embedded", {}).get("notes") or []):
+                if note.get("note_type") != "common":
+                    continue
+                text = (note.get("params") or {}).get("text", "") or ""
+                if not text:
+                    continue
+                lines = re.split(r"[\n;]+", text)
+                names = [ln for ln in lines if _looks_like_name(ln)]
+                if names:
+                    candidate_lines = names
+                    break
+
+    names = [ln.strip() for ln in candidate_lines if _looks_like_name(ln)]
+    return names[:qty]  # не больше qty
+
+
 def detect_ticket_qty(lead: dict) -> int:
     """Определяет количество билетов на сделку.
     Приоритет: FIELD_TICKET_QTY > PRODUCTS-парсинг (Tilda Cart) > 1.
@@ -381,16 +433,22 @@ def process_lead(lead: dict, pipe_cfg: dict, template_html: str) -> None:
     if not name:
         name = "Гостья"
 
-    # Рендер N PDF (по одному на каждый номер билета)
-    surname = name.split()[-1] if name else "Гость"
-    safe_surname = re.sub(r"[^\w-]", "_", surname)
+    # Имена гостей (если есть N имён — каждое попадёт на свой билет; иначе всё на плательщика)
+    guest_names = extract_guest_names(lead, lead_id, qty) if qty > 1 else []
+    if guest_names:
+        log(f"  👥 #{lead_id}: найдено {len(guest_names)} имён гостей: {', '.join(guest_names)}")
+
     pdf_paths = []
     for idx, tn in enumerate(ticket_numbers, start=1):
-        pdf_path = PDF_DIR / f"Билет_{tn}_{safe_surname}.pdf"
+        # Если есть отдельное имя гостя для этой позиции — используем его, иначе имя плательщика
+        ticket_fio = guest_names[idx - 1] if idx - 1 < len(guest_names) else name
+        ticket_surname = ticket_fio.split()[-1] if ticket_fio else "Гость"
+        ticket_safe = re.sub(r"[^\w-]", "_", ticket_surname)
+        pdf_path = PDF_DIR / f"Билет_{tn}_{ticket_safe}.pdf"
         # Метка «Билет 2 из 4» появляется только при N>1
         ticket_index = f"Билет {idx} из {qty}" if qty > 1 else ""
         ticket_data = {
-            "FIO": name,
+            "FIO": ticket_fio,
             "DATE_HUMAN": pipe_cfg["date_human"],
             "CITY": pipe_cfg["city"],
             "LOCATION": "локация уточняется",
