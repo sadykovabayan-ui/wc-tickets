@@ -68,8 +68,10 @@ PIPELINES = {
 }
 
 # Поля сделки
-FIELD_TICKET_NUMBER = 1173752       # Номер билета 2026 (text)
+FIELD_TICKET_NUMBER = 1173752       # Номер билета 2026 (text) — для N>1 храним все через ";"
 FIELD_QR_LINK = 1166691             # Ссылка на QR билет (url)
+FIELD_TICKET_QTY = 1173814          # Количество билетов (numeric) — заполняется dispatch или вручную
+FIELD_PRODUCTS = 1166201            # PRODUCTS от Tilda Cart (тут "Купить билет - 4x15000 = 60000")
 # Email и ФИО — берутся из связанного контакта
 
 # Resend
@@ -190,14 +192,13 @@ def render_pdf(template_html: str, output_pdf: Path, ticket_data: dict) -> bool:
     return True
 
 
-def resend_send(to_email: str, to_name: str, subject: str, html: str, pdf_path: Path) -> bool:
-    """Отправляет email с PDF через Resend API."""
+def resend_send(to_email: str, to_name: str, subject: str, html: str, pdf_paths) -> bool:
+    """Отправляет email через Resend API. pdf_paths — Path или список Path."""
     try:
         api_key = _get_secret("RESEND_API_KEY", RESEND_KEY_FILE)
     except RuntimeError as e:
         log(f"  ⏸ {e} — пропускаю отправку")
         return False
-    pdf_b64 = base64.b64encode(pdf_path.read_bytes()).decode()
     recipient = RESEND_TEST_TO or to_email
 
     # Inline-баннер в шапке письма (cid:wc_banner в HTML)
@@ -210,10 +211,13 @@ def resend_send(to_email: str, to_name: str, subject: str, html: str, pdf_path: 
             "content_id": "wc_banner",
             "content_type": "image/jpeg",
         })
-    attachments.append({
-        "filename": pdf_path.name,
-        "content": pdf_b64,
-    })
+    # Поддержка одиночного пути и списка
+    pdf_list = pdf_paths if isinstance(pdf_paths, (list, tuple)) else [pdf_paths]
+    for p in pdf_list:
+        attachments.append({
+            "filename": p.name,
+            "content": base64.b64encode(p.read_bytes()).decode(),
+        })
     payload = {
         "from": f"{RESEND_FROM_NAME} <{RESEND_FROM_EMAIL}>",
         "to": [recipient],
@@ -267,20 +271,74 @@ def extract_email_phone_name(contact: dict):
     return name, email, phone
 
 
-def process_lead(lead: dict, pipe_cfg: dict, template_html: str) -> None:
-    lead_id = lead["id"]
+def detect_ticket_qty(lead: dict) -> int:
+    """Определяет количество билетов на сделку.
+    Приоритет: FIELD_TICKET_QTY > PRODUCTS-парсинг (Tilda Cart) > 1.
+    """
+    cfs = lead.get("custom_fields_values") or []
+    # 1) Явное поле «Количество билетов»
+    for cf in cfs:
+        if cf.get("field_id") == FIELD_TICKET_QTY:
+            try:
+                v = (cf.get("values") or [{}])[0].get("value")
+                if v is not None:
+                    n = int(v)
+                    if 1 <= n <= 50:
+                        return n
+            except (ValueError, TypeError):
+                pass
+    # 2) Парсинг PRODUCTS (Tilda Cart): "Купить билет - 4x15000 = 60000"
+    for cf in cfs:
+        if cf.get("field_id") == FIELD_PRODUCTS:
+            v = (cf.get("values") or [{}])[0].get("value", "") or ""
+            m = re.search(r"(\d+)\s*[x×]\s*\d", v, re.IGNORECASE)
+            if m:
+                n = int(m.group(1))
+                if 1 <= n <= 50:
+                    return n
+    # 3) Default — 1 билет
+    return 1
 
-    # ЗАЩИТА ОТ ДУБЛЕЙ #1: если у сделки уже есть номер билета — значит билет уже
-    # генерировался. НЕ создаём новый и НЕ шлём письмо повторно. Просто пытаемся
-    # дотолкнуть статус «Билет отправлен», если он почему-то не дошёл.
-    existing_number = None
+
+def ticket_numbers_for_lead(lead: dict, pipe_cfg: dict, qty: int) -> list:
+    """Возвращает список номеров билетов для сделки.
+    Если в FIELD_TICKET_NUMBER уже что-то записано — парсит оттуда (защита от дублей).
+    Иначе — генерит qty последовательных номеров через next_ticket_number.
+    """
+    existing = ""
     for cf in lead.get("custom_fields_values") or []:
         if cf.get("field_id") == FIELD_TICKET_NUMBER:
-            existing_number = (cf["values"][0]["value"] if cf.get("values") else "") or None
+            existing = (cf.get("values") or [{}])[0].get("value", "") or ""
+            break
+    if existing:
+        # парсим "WCF26-ALA-0010; WCF26-ALA-0011; ..." или с запятыми
+        nums = re.findall(r"WCF26-[A-Z]{3}-\d{4}", existing)
+        if nums:
+            return nums
+    # Генерим новые: первый через next_ticket_number, остальные инкрементом
+    first = next_ticket_number(pipe_cfg["city_code"], pipe_cfg["_pipeline_id"])
+    m = re.match(r"(WCF26-[A-Z]{3}-)(\d+)$", first)
+    if not m:
+        return [first]
+    prefix, start = m.group(1), int(m.group(2))
+    return [f"{prefix}{start + i:04d}" for i in range(qty)]
+
+
+def process_lead(lead: dict, pipe_cfg: dict, template_html: str) -> None:
+    lead_id = lead["id"]
+    qty = detect_ticket_qty(lead)
+
+    # ЗАЩИТА ОТ ДУБЛЕЙ #1: проверяем что записано в FIELD_TICKET_NUMBER.
+    # Если там уже есть номера — значит билеты уже выпущены. Не шлём повторно.
+    existing_raw = ""
+    for cf in lead.get("custom_fields_values") or []:
+        if cf.get("field_id") == FIELD_TICKET_NUMBER:
+            existing_raw = (cf.get("values") or [{}])[0].get("value", "") or ""
             break
 
-    if existing_number:
-        log(f"⏭ #{lead_id}: номер {existing_number} уже выдан — дотолкну статус, письмо повторно НЕ шлю")
+    if existing_raw:
+        existing_nums = re.findall(r"WCF26-[A-Z]{3}-\d{4}", existing_raw)
+        log(f"⏭ #{lead_id}: билеты уже выпущены ({len(existing_nums)} шт: {existing_raw[:80]}) — дотолкну статус, письмо НЕ повторяю")
         st, _ = amo("PATCH", f"/leads/{lead_id}", {"status_id": pipe_cfg["status_sent"]})
         if st in (200, 202):
             log(f"  ✅ #{lead_id} статус → «Билет отправлен»")
@@ -288,18 +346,19 @@ def process_lead(lead: dict, pipe_cfg: dict, template_html: str) -> None:
             log(f"  ⚠ #{lead_id} PATCH статуса вернул HTTP {st}")
         return
 
-    log(f"📨 Сделка #{lead_id} «{lead['name']}» — генерирую билет")
-    # pipeline_id берём из вызывающей функции через замыкание - параметризую
-    ticket_number = next_ticket_number(pipe_cfg["city_code"], pipe_cfg["_pipeline_id"])
+    log(f"📨 Сделка #{lead_id} «{lead['name']}» — генерирую {qty} билет(ов)")
+    ticket_numbers = ticket_numbers_for_lead(lead, pipe_cfg, qty)
+    ticket_numbers_str = "; ".join(ticket_numbers)
 
-    # ЗАЩИТА ОТ ДУБЛЕЙ #2: СРАЗУ записываем ticket_number в AmoCRM, до отправки письма.
-    # Если потом упадёт сеть/Resend/PATCH — на следующем тике мы увидим existing_number
-    # и не сгенерим второй билет.
+    # ЗАЩИТА ОТ ДУБЛЕЙ #2: СРАЗУ записываем все номера в AmoCRM.
     st, _ = amo("PATCH", f"/leads/{lead_id}", {
-        "custom_fields_values": [{"field_id": FIELD_TICKET_NUMBER, "values": [{"value": ticket_number}]}]
+        "custom_fields_values": [
+            {"field_id": FIELD_TICKET_NUMBER, "values": [{"value": ticket_numbers_str}]},
+            {"field_id": FIELD_TICKET_QTY, "values": [{"value": qty}]},
+        ]
     })
     if st not in (200, 202):
-        log(f"  ❌ #{lead_id} не смог записать ticket_number в AmoCRM (HTTP {st}) — отмена, попробую позже")
+        log(f"  ❌ #{lead_id} не смог записать номера в AmoCRM (HTTP {st}) — отмена")
         return
 
     # Получаем email/имя/телефон из связанного контакта
@@ -322,38 +381,50 @@ def process_lead(lead: dict, pipe_cfg: dict, template_html: str) -> None:
     if not name:
         name = "Гостья"
 
-    # Рендер PDF
+    # Рендер N PDF (по одному на каждый номер билета)
     surname = name.split()[-1] if name else "Гость"
     safe_surname = re.sub(r"[^\w-]", "_", surname)
-    pdf_path = PDF_DIR / f"Билет_{ticket_number}_{safe_surname}.pdf"
+    pdf_paths = []
+    for tn in ticket_numbers:
+        pdf_path = PDF_DIR / f"Билет_{tn}_{safe_surname}.pdf"
+        ticket_data = {
+            "FIO": name,
+            "DATE_HUMAN": pipe_cfg["date_human"],
+            "CITY": pipe_cfg["city"],
+            "LOCATION": "локация уточняется",
+            "TICKET_NUMBER": tn,
+            "TICKET_NUMBER_FORMATTED": tn.replace("-", "<span class='sep'>·</span>"),
+            "QR_URL": f"https://api.qrserver.com/v1/create-qr-code/?data={urllib.parse.quote(tn)}&size=600x600&ecc=H&color=000000&bgcolor=FFFFFF&margin=0",
+        }
+        if not render_pdf(template_html, pdf_path, ticket_data):
+            log(f"  ❌ Не смог отрендерить PDF {tn} — отмена")
+            return
+        pdf_paths.append(pdf_path)
 
-    ticket_data = {
-        "FIO": name,
-        "DATE_HUMAN": pipe_cfg["date_human"],
-        "CITY": pipe_cfg["city"],
-        "LOCATION": "локация уточняется",  # TODO заменить когда подтвердят локации
-        "TICKET_NUMBER": ticket_number,
-        "TICKET_NUMBER_FORMATTED": ticket_number.replace("-", "<span class='sep'>·</span>"),
-        "QR_URL": f"https://api.qrserver.com/v1/create-qr-code/?data={urllib.parse.quote(ticket_number)}&size=600x600&ecc=H&color=000000&bgcolor=FFFFFF&margin=0",
-    }
-    if not render_pdf(template_html, pdf_path, ticket_data):
-        log(f"  ❌ Не смог отрендерить PDF — пропуск")
-        return
+    # Email — одно письмо со всеми N вложениями
+    if qty == 1:
+        subject = f"Ваш билет на фестиваль «Я боюсь и делаю!» — {pipe_cfg['city']}"
+        ticket_word = "Ваш билет"
+        intro_line = f"Ваш билет на Женский Бизнес Фестиваль <strong>«Я боюсь и делаю!»</strong> во вложении."
+    else:
+        subject = f"Ваши билеты ({qty} шт) на фестиваль «Я боюсь и делаю!» — {pipe_cfg['city']}"
+        ticket_word = f"Ваши {qty} билета"
+        intro_line = f"Во вложении <strong>{qty} билета</strong> на Женский Бизнес Фестиваль <strong>«Я боюсь и делаю!»</strong>. У каждого свой уникальный QR — на входе у каждого гостя свой билет."
 
-    # Email
-    subject = f"Ваш билет на фестиваль «Я боюсь и делаю!» — {pipe_cfg['city']}"
+    numbers_html = "<br>".join(f"🎟 <strong>{tn}</strong>" for tn in ticket_numbers)
+
     body_html = f"""
     <div style="font-family: -apple-system, Arial, sans-serif; color: #1a1a1a; max-width: 600px; margin: 0 auto;">
       <img src="cid:wc_banner" alt="Woman Create — Я боюсь и делаю" style="width:100%; max-width:600px; display:block; border-radius:6px; margin-bottom:18px;">
       <p>Здравствуйте, {name}!</p>
-      <p>Ваш билет на Женский Бизнес Фестиваль <strong>«Я боюсь и делаю!»</strong> во вложении.</p>
+      <p>{intro_line}</p>
       <p>
         📅 <strong>{pipe_cfg['date_human']}</strong><br>
-        📍 <strong>{pipe_cfg['city']}</strong>, локация уточняется<br>
-        🎟 Номер билета: <strong>{ticket_number}</strong>
+        📍 <strong>{pipe_cfg['city']}</strong>, локация уточняется
       </p>
+      <p>{numbers_html}</p>
       <p>На входе достаточно показать PDF с экрана телефона или распечатать.</p>
-      <p style="color:#666;font-size:0.92em;">Возврат билета возможен не позднее, чем за 72 часа до фестиваля.</p>
+      <p style="color:#666;font-size:0.92em;">Возврат билетов возможен не позднее, чем за 72 часа до фестиваля.</p>
       <p>До встречи на фестивале!<br>С теплом, команда Woman Create</p>
       <hr style="border:none;border-top:1px solid #eee;margin:24px 0 14px;">
       <p style="color:#888;font-size:0.85em;line-height:1.5;">
@@ -362,24 +433,21 @@ def process_lead(lead: dict, pipe_cfg: dict, template_html: str) -> None:
       </p>
     </div>
     """
-    email_sent = resend_send(email, name, subject, body_html, pdf_path)
+    email_sent = resend_send(email, name, subject, body_html, pdf_paths)
 
     if email_sent:
-        # Записываем QR-ссылку (для оператора в CRM) и переводим статус в «Билет отправлен»
-        qr_link = ticket_data["QR_URL"]
-        patch_data = {
-            "custom_fields_values": [
-                {"field_id": FIELD_QR_LINK, "values": [{"value": qr_link}]},
-            ],
+        # QR-ссылка — на первый билет (как индикатор для оператора в CRM)
+        qr_link_first = f"https://api.qrserver.com/v1/create-qr-code/?data={urllib.parse.quote(ticket_numbers[0])}&size=600x600&ecc=H&color=000000&bgcolor=FFFFFF&margin=0"
+        st, _ = amo("PATCH", f"/leads/{lead['id']}", {
+            "custom_fields_values": [{"field_id": FIELD_QR_LINK, "values": [{"value": qr_link_first}]}],
             "status_id": pipe_cfg["status_sent"],
-        }
-        st, _ = amo("PATCH", f"/leads/{lead['id']}", patch_data)
+        })
         if st in (200, 202):
-            log(f"  ✅ #{lead['id']} статус → «Билет отправлен», QR-ссылка записана")
+            log(f"  ✅ #{lead['id']} {qty} билет(ов) отправлено → «Билет отправлен»")
         else:
-            log(f"  ⚠ #{lead['id']} письмо ушло, но PATCH статуса HTTP {st} — статус не сменился. Следующий запуск дотолкнёт его (без повторного письма — ticket_number уже выставлен).")
+            log(f"  ⚠ #{lead['id']} письмо ушло, PATCH статуса HTTP {st} — дотолкнётся на след. тике")
     else:
-        log(f"  ⚠ #{lead['id']}: письмо НЕ ушло, ticket_number {ticket_number} уже зарезервирован. Попробую позже (но письмо повторно НЕ полетит — нужен ручной разбор).")
+        log(f"  ⚠ #{lead['id']}: письмо НЕ ушло, номера {ticket_numbers_str} зарезервированы. Нужен ручной разбор.")
 
 
 def main() -> int:
