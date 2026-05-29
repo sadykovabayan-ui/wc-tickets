@@ -291,6 +291,52 @@ def dispatch_from_festival():
     return m1 + m2, s1 + s2
 
 
+def city_mismatch_swap():
+    """Страховка: если сделка в «Фестиваль Алматы 2026 / Новая заявка», а поле
+    «Выбор города» = Астана (или наоборот) — переносим в правильную воронку.
+
+    Нужно потому что Tilda иногда направляет ВСЕ заявки в одну воронку,
+    независимо от выбора города в форме. Здесь это правим.
+    """
+    swapped = 0
+    pairs = [
+        (PIPELINES_2026["alma"], PIPELINES_2026["asta"]),  # из Алматы → Астана если город Астана
+        (PIPELINES_2026["asta"], PIPELINES_2026["alma"]),  # из Астаны → Алматы если город Алматы
+    ]
+    for src, dst in pairs:
+        # Смотрим только «Новая заявка» — где менеджер ещё не вмешался
+        st, resp = api(
+            "GET",
+            f"/leads?filter[pipeline_id]={src['id']}"
+            f"&filter[statuses][0][pipeline_id]={src['id']}"
+            f"&filter[statuses][0][status_id]={src['new_lead']}"
+            f"&with=custom_fields_values&limit=100",
+        )
+        if st == 204:
+            continue
+        if st != 200 or not resp:
+            continue
+        leads = resp.get("_embedded", {}).get("leads", []) or []
+        for lead in leads:
+            target_pipe, city_text = resolve_target_city(lead)
+            if not target_pipe:
+                continue  # не удалось определить — оставляем
+            if target_pipe["id"] == src["id"]:
+                continue  # город соответствует текущей воронке — оставляем
+            if target_pipe["id"] != dst["id"]:
+                continue  # на всякий — не наша пара
+            st2, r = api(
+                "PATCH", f"/leads/{lead['id']}",
+                {"pipeline_id": dst["id"], "status_id": dst["new_lead"]},
+            )
+            if st2 in (200, 202):
+                swapped += 1
+                log(f"  🔁 #{lead['id']} город='{city_text[:40]}' → перенесён из {src['name']} в {dst['name']}")
+            else:
+                log(f"  ❌ #{lead['id']} swap PATCH failed HTTP {st2}")
+    return swapped
+
+
 def timeout_robokassa():
     """Часть 2: таймаут «Ожидание оплаты Robokassa» — переводит в «Robokassa нет оплаты»."""
     now_ts = int(datetime.now(timezone.utc).timestamp())
@@ -328,9 +374,10 @@ def timeout_robokassa():
 
 def main() -> int:
     moved, skipped = dispatch_from_festival()
+    swapped = city_mismatch_swap()
     timed_out = timeout_robokassa()
-    if moved or skipped or timed_out:
-        log(f"итого: перенесено={moved}, пропущено={skipped}, таймаут Robokassa={timed_out}")
+    if moved or skipped or swapped or timed_out:
+        log(f"итого: перенесено={moved}, пропущено={skipped}, swap городов={swapped}, таймаут Robokassa={timed_out}")
     return 0
 
 
