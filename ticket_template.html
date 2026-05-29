@@ -144,6 +144,14 @@
     letter-spacing: 1.2mm;
   }
   .ticket-no .sep { color: #c9a7a0; margin: 0 0.8mm; }
+  .ticket-index {
+    margin-top: 1.5mm;
+    font-size: 2.2mm;
+    color: #8a1538;
+    letter-spacing: 0.4mm;
+    font-weight: 500;
+    text-transform: uppercase;
+  }
 
   /* === QR === */
   .qr-wrap {
@@ -235,6 +243,7 @@
 
   <div class="ticket-no">
     {{TICKET_NUMBER_FORMATTED}}
+    <div class="ticket-index">{{TICKET_INDEX}}</div>
   </div>
 
   <div class="qr-wrap">

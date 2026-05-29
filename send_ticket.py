@@ -385,8 +385,10 @@ def process_lead(lead: dict, pipe_cfg: dict, template_html: str) -> None:
     surname = name.split()[-1] if name else "Гость"
     safe_surname = re.sub(r"[^\w-]", "_", surname)
     pdf_paths = []
-    for tn in ticket_numbers:
+    for idx, tn in enumerate(ticket_numbers, start=1):
         pdf_path = PDF_DIR / f"Билет_{tn}_{safe_surname}.pdf"
+        # Метка «Билет 2 из 4» появляется только при N>1
+        ticket_index = f"Билет {idx} из {qty}" if qty > 1 else ""
         ticket_data = {
             "FIO": name,
             "DATE_HUMAN": pipe_cfg["date_human"],
@@ -394,6 +396,7 @@ def process_lead(lead: dict, pipe_cfg: dict, template_html: str) -> None:
             "LOCATION": "локация уточняется",
             "TICKET_NUMBER": tn,
             "TICKET_NUMBER_FORMATTED": tn.replace("-", "<span class='sep'>·</span>"),
+            "TICKET_INDEX": ticket_index,
             "QR_URL": f"https://api.qrserver.com/v1/create-qr-code/?data={urllib.parse.quote(tn)}&size=600x600&ecc=H&color=000000&bgcolor=FFFFFF&margin=0",
         }
         if not render_pdf(template_html, pdf_path, ticket_data):
