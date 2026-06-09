@@ -73,6 +73,7 @@ FIELD_QR_LINK = 1166691             # Ссылка на QR билет (url)
 FIELD_TICKET_QTY = 1173814          # Количество билетов (numeric) — заполняется dispatch или вручную
 FIELD_PRODUCTS = 1166201            # PRODUCTS от Tilda Cart (тут "Купить билет - 4x15000 = 60000")
 FIELD_GUEST_NAMES = 1173816         # Имена гостей (textarea) — по строке на гостя
+FIELD_RESEND_EMAIL_ID = 1174381     # Resend email ID — для отслеживания bounce
 # Email и ФИО — берутся из связанного контакта
 
 # Resend
@@ -197,13 +198,15 @@ def render_pdf(template_html: str, output_pdf: Path, ticket_data: dict) -> bool:
     return True
 
 
-def resend_send(to_email: str, to_name: str, subject: str, html: str, pdf_paths) -> bool:
-    """Отправляет email через Resend API. pdf_paths — Path или список Path."""
+def resend_send(to_email: str, to_name: str, subject: str, html: str, pdf_paths):
+    """Отправляет email через Resend API. pdf_paths — Path или список Path.
+    Возвращает email_id (string) при успехе, None при ошибке.
+    """
     try:
         api_key = _get_secret("RESEND_API_KEY", RESEND_KEY_FILE)
     except RuntimeError as e:
         log(f"  ⏸ {e} — пропускаю отправку")
-        return False
+        return None
     recipient = RESEND_TEST_TO or to_email
 
     # Inline-баннер в шапке письма (cid:wc_banner в HTML)
@@ -243,20 +246,21 @@ def resend_send(to_email: str, to_name: str, subject: str, html: str, pdf_paths)
     )
     try:
         with urllib.request.urlopen(req, timeout=30) as r:
-            log(f"  📧 Resend OK → {recipient}")
-            return True
+            body = r.read().decode()
+            data = json.loads(body) if body else {}
+            email_id = data.get("id")
+            log(f"  📧 Resend OK → {recipient}  (id={email_id})")
+            return email_id
     except urllib.error.HTTPError as e:
         body = e.read().decode()[:300]
         log(f"  ❌ Resend failed HTTP {e.code}: {body}")
-        return False
+        return None
     except urllib.error.URLError as e:
-        # Сетевая ошибка / DNS / таймаут. Письмо ТОЧНО не ушло.
         log(f"  ❌ Resend network error (URLError): {e.reason}")
-        return False
+        return None
     except Exception as e:
-        # Любая другая ошибка. Не знаем, ушло ли — но возвращаем False, чтобы не двигать статус.
         log(f"  ❌ Resend unknown error: {type(e).__name__}: {e}")
-        return False
+        return None
 
 
 def get_contact(contact_id: int):
@@ -498,17 +502,20 @@ def process_lead(lead: dict, pipe_cfg: dict, template_html: str) -> None:
       </p>
     </div>
     """
-    email_sent = resend_send(email, name, subject, body_html, pdf_paths)
+    email_id = resend_send(email, name, subject, body_html, pdf_paths)
 
-    if email_sent:
-        # QR-ссылка — на первый билет (как индикатор для оператора в CRM)
+    if email_id:
+        # QR-ссылка — на первый билет + RESEND_EMAIL_ID для последующей bounce-проверки
         qr_link_first = f"https://api.qrserver.com/v1/create-qr-code/?data={urllib.parse.quote(ticket_numbers[0])}&size=600x600&ecc=H&color=000000&bgcolor=FFFFFF&margin=0"
         st, _ = amo("PATCH", f"/leads/{lead['id']}", {
-            "custom_fields_values": [{"field_id": FIELD_QR_LINK, "values": [{"value": qr_link_first}]}],
+            "custom_fields_values": [
+                {"field_id": FIELD_QR_LINK, "values": [{"value": qr_link_first}]},
+                {"field_id": FIELD_RESEND_EMAIL_ID, "values": [{"value": email_id}]},
+            ],
             "status_id": pipe_cfg["status_sent"],
         })
         if st in (200, 202):
-            log(f"  ✅ #{lead['id']} {qty} билет(ов) отправлено → «Билет отправлен»")
+            log(f"  ✅ #{lead['id']} {qty} билет(ов) отправлено → «Билет отправлен» (email_id={email_id})")
         else:
             log(f"  ⚠ #{lead['id']} письмо ушло, PATCH статуса HTTP {st} — дотолкнётся на след. тике")
     else:

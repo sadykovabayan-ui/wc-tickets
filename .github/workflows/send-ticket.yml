@@ -35,3 +35,11 @@ jobs:
           WC_PROD_EMAIL: "1"
           WC_CHROME_BIN: /usr/bin/chromium-browser
         run: python3 send_ticket.py
+      # ШАГ 3: health check — bounce detection + admin alerts.
+      # Запускается ПОСЛЕ выпуска (чтобы успели зарегистрироваться bounces ранее
+      # отправленных писем) — Resend обычно возвращает bounce за 30-60 сек.
+      - name: Health check (bounces + hanging leads)
+        env:
+          AMOCRM_TOKEN: ${{ secrets.AMOCRM_TOKEN }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+        run: python3 health_check.py
