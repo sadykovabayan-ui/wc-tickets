@@ -122,13 +122,13 @@ def amo(method: str, path: str, payload=None):
 
 def next_ticket_number(city_code: str, pipeline_id: int) -> str:
     """Считает max существующий номер билета для города через AmoCRM, возвращает следующий.
-    Это убирает зависимость от локального counter-файла (stateless).
+    Парсит ВСЕ номера из любой записи (включая списки через ;), не только одиночные.
+    Stateless — нет зависимости от локального counter-файла.
     """
     import re as _re
     max_n = 0
-    # Берём ВСЕ сделки воронки с заполненным ticket_number, ищем максимальное число
     page = 1
-    while page <= 5:  # до 5 страниц по 250 = до 1250 билетов на воронку
+    while page <= 5:  # до 5 страниц по 250 = до 1250 сделок на воронку
         st, resp = amo("GET",
             f"/leads?filter[pipeline_id]={pipeline_id}&with=custom_fields_values&limit=250&page={page}")
         if st != 200 or not resp:
@@ -140,9 +140,13 @@ def next_ticket_number(city_code: str, pipeline_id: int) -> str:
             for cf in lead.get("custom_fields_values") or []:
                 if cf.get("field_id") == FIELD_TICKET_NUMBER:
                     val = (cf.get("values") or [{}])[0].get("value", "") or ""
-                    m = _re.match(rf"WCF26-{city_code}-(\d+)$", val)
-                    if m:
-                        n = int(m.group(1))
+                    # findall парсит ВСЕ номера в строке. Поддерживает форматы:
+                    #   "WCF26-ALA-0010"
+                    #   "WCF26-ALA-0010; WCF26-ALA-0011; WCF26-ALA-0012"
+                    #   "WCF26-ALA-0010, WCF26-ALA-0011"
+                    nums = _re.findall(rf"WCF26-{city_code}-(\d+)", val)
+                    for n_str in nums:
+                        n = int(n_str)
                         if n > max_n:
                             max_n = n
         if len(leads) < 250:
