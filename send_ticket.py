@@ -397,14 +397,28 @@ def process_lead(lead: dict, pipe_cfg: dict, template_html: str) -> None:
             break
 
     if existing_raw:
-        existing_nums = re.findall(r"WCF26-[A-Z]{3}-\d{4}", existing_raw)
-        log(f"⏭ #{lead_id}: билеты уже выпущены ({len(existing_nums)} шт: {existing_raw[:80]}) — дотолкну статус, письмо НЕ повторяю")
-        st, _ = amo("PATCH", f"/leads/{lead_id}", {"status_id": pipe_cfg["status_sent"]})
-        if st in (200, 202):
-            log(f"  ✅ #{lead_id} статус → «Билет отправлен»")
-        else:
-            log(f"  ⚠ #{lead_id} PATCH статуса вернул HTTP {st}")
-        return
+        # Номера зарезервированы. Но было ли РЕАЛЬНО отправлено письмо?
+        # Признак отправки — заполненный RESEND_EMAIL_ID. Если его нет —
+        # прошлая попытка сорвалась (например, у контакта не было email),
+        # и надо ПОВТОРИТЬ отправку с теми же номерами, а не двигать статус.
+        has_email_id = False
+        for cf in lead.get("custom_fields_values") or []:
+            if cf.get("field_id") == FIELD_RESEND_EMAIL_ID:
+                if (cf.get("values") or [{}])[0].get("value"):
+                    has_email_id = True
+                break
+        if has_email_id:
+            existing_nums = re.findall(r"WCF26-[A-Z]{3}-\d{4}", existing_raw)
+            log(f"⏭ #{lead_id}: билеты уже отправлены ({len(existing_nums)} шт) — дотолкну статус, письмо НЕ повторяю")
+            st, _ = amo("PATCH", f"/leads/{lead_id}", {"status_id": pipe_cfg["status_sent"]})
+            if st in (200, 202):
+                log(f"  ✅ #{lead_id} статус → «Билет отправлен»")
+            else:
+                log(f"  ⚠ #{lead_id} PATCH статуса вернул HTTP {st}")
+            return
+        log(f"🔁 #{lead_id}: номера зарезервированы ({existing_raw[:60]}), но письмо НЕ отправлялось — повторяю отправку")
+        # НЕ выходим: продолжаем полный процесс. ticket_numbers_for_lead
+        # переиспользует существующие номера — дублей не будет.
 
     log(f"📨 Сделка #{lead_id} «{lead['name']}» — генерирую {qty} билет(ов)")
     ticket_numbers = ticket_numbers_for_lead(lead, pipe_cfg, qty)
