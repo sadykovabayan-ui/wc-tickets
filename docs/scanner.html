@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>WC Fest — сканер билетов</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: -apple-system, system-ui, sans-serif;
+    background: var(--tg-theme-bg-color, #fff);
+    color: var(--tg-theme-text-color, #111);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    min-height: 100vh; padding: 24px; text-align: center;
+  }
+  .logo { font-size: 44px; margin-bottom: 8px; }
+  h1 { font-size: 20px; margin-bottom: 6px; }
+  p  { font-size: 15px; opacity: .75; margin-bottom: 28px; line-height: 1.45; }
+  button {
+    font-size: 19px; font-weight: 600;
+    padding: 16px 30px; border: none; border-radius: 14px;
+    background: #8a1538; color: #fff; width: 100%; max-width: 340px;
+    cursor: pointer;
+  }
+  button:active { opacity: .8; }
+  .hint { margin-top: 22px; font-size: 13px; opacity: .55; }
+</style>
+</head>
+<body>
+  <div class="logo">🎟</div>
+  <h1>Сканер билетов WC Fest 2026</h1>
+  <p>Нажми кнопку и наведи камеру<br>на QR-код билета гостьи</p>
+  <button id="scan">📷 Сканировать билет</button>
+  <div class="hint">Если камера не читает код —<br>закрой сканер и отправь номер билета<br>боту текстом: WCF26-ALA-0001</div>
+<script>
+  const tg = window.Telegram.WebApp;
+  tg.ready();
+  tg.expand();
+
+  const RE = /WCF26-(?:ALA|AST)-\d{4}/i;
+
+  function startScan() {
+    try {
+      tg.showScanQrPopup({ text: 'Наведи камеру на QR билета' }, (data) => {
+        if (!data) return false;
+        const m = data.match(RE);
+        if (m) {
+          // Отправляем номер билета боту и закрываем mini app
+          tg.sendData(m[0].toUpperCase());
+          return true;   // true = закрыть попап сканера
+        }
+        return false;    // не наш QR — продолжаем сканировать
+      });
+    } catch (e) {
+      alert('Сканер не поддерживается в этой версии Telegram. Обнови приложение или введи номер билета текстом.');
+    }
+  }
+
+  document.getElementById('scan').addEventListener('click', startScan);
+  // Автозапуск сканера сразу при открытии
+  setTimeout(startScan, 350);
+</script>
+</body>
+</html>
