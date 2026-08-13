@@ -170,7 +170,24 @@ def check_ticket(num, volunteer):
     name = guest_name(lead)
     extra = (f"\n👥 Заказ на {len(all_tickets)}: отсканировано {scanned_count} из {len(all_tickets)}"
              if len(all_tickets) > 1 else "")
-    return f"✅ <b>ПРОХОДИТ</b>\n<b>{name}</b>\n<code>{num}</code> · {pipe['city']} · {hhmm}{extra}"
+
+    # Тариф: цена сделки / кол-во билетов. Порог VIP настраивается через env VIP_THRESHOLD.
+    tariff_line = ""
+    try:
+        price = int(lead.get("price") or 0)
+        if price > 0:
+            per = price // max(len(all_tickets), 1)
+            vip_threshold = int(os.environ.get("VIP_THRESHOLD", "40000"))
+            if per >= vip_threshold:
+                tariff_line = f"\n💎 <b>VIP — {per:,} ₸/билет — проводить в VIP-зону!</b>".replace(",", " ")
+            else:
+                tariff_line = f"\n💰 Тариф: {per:,} ₸/билет".replace(",", " ")
+        else:
+            tariff_line = "\n💰 Тариф: не указан в сделке"
+    except Exception:
+        pass
+
+    return f"✅ <b>ПРОХОДИТ</b>\n<b>{name}</b>\n<code>{num}</code> · {pipe['city']} · {hhmm}{tariff_line}{extra}"
 
 
 def stats():
