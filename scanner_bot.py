@@ -34,8 +34,10 @@ SCANNER_URL = "https://sadykovabayan-ui.github.io/wc-tickets/scanner.html"
 ALMATY_TZ = timezone(timedelta(hours=5))
 
 PIPES = {
-    10952890: {"city": "Алматы", "paid": 86119638, "sent": 86119642},
-    10952898: {"city": "Астана", "paid": 86119678, "sent": 86119682},
+    # arrived = статус «гость пришел» (ставится при первом отсканированном билете заказа).
+    # Для Астаны статус ещё не создан — fallback на 142 «Успешно реализовано».
+    10952890: {"city": "Алматы", "paid": 86119638, "sent": 86119642, "arrived": 87863434},
+    10952898: {"city": "Астана", "paid": 86119678, "sent": 86119682, "arrived": None},
 }
 F_TICKET = 1173752
 F_SCANTIME = 1173762
@@ -133,7 +135,9 @@ def check_ticket(num, volunteer):
     if not pipe:
         return f"⚠️ <b>СТОП</b>\n<code>{num}</code> — сделка в служебной воронке. Зови старшего."
 
-    if lead.get("status_id") not in (pipe["sent"], pipe["paid"], STATUS_DONE):
+    arrived = pipe.get("arrived") or STATUS_DONE
+    ok_statuses = (pipe["sent"], pipe["paid"], STATUS_DONE, arrived)
+    if lead.get("status_id") not in ok_statuses:
         return (f"⚠️ <b>СТОП — оплата не подтверждена</b>\n<code>{num}</code>\n"
                 f"Статус сделки не «Билет отправлен». Зови старшего.")
 
@@ -154,9 +158,8 @@ def check_ticket(num, volunteer):
     fields = [{"field_id": F_VOLUNTEER, "values": [{"value": new_scanned}]}]
     if not scanned:
         fields.append({"field_id": F_SCANTIME, "values": [{"value": int(now.timestamp())}]})
-    patch = {"custom_fields_values": fields}
-    if all_done:
-        patch["status_id"] = STATUS_DONE
+    # Статус «гость пришел» — сразу при первом отсканированном билете заказа
+    patch = {"custom_fields_values": fields, "status_id": arrived}
     st, _ = amo("PATCH", f"/leads/{lead['id']}", patch)
     if st not in (200, 202):
         return f"⚠️ Сбой записи в CRM (HTTP {st}). Отсканируй ещё раз."
