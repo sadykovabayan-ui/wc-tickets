@@ -31,7 +31,7 @@ jobs:
       - name: Re-dispatch next session
         if: always()
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
           curl -s -X POST \
             -H "Authorization: Bearer $GH_TOKEN" \
