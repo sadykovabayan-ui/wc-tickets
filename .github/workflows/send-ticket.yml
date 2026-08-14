@@ -43,3 +43,23 @@ jobs:
           AMOCRM_TOKEN: ${{ secrets.AMOCRM_TOKEN }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
         run: python3 health_check.py
+      # СТОРОЖ: в дни фестиваля (15.08, 22.08) проверяем что scanner-bot жив.
+      # Если ни одного running/queued рана — поднимаем. Вторая линия защиты
+      # после самоперезапуска (кейс 15.08: github.token не диспатчит workflow).
+      - name: Watchdog scanner-bot
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          d=$(date -u +%m-%d)
+          if [ "$d" = "08-15" ] || [ "$d" = "08-22" ]; then
+            api="https://api.github.com/repos/${{ github.repository }}/actions/workflows/scanner-bot.yml"
+            n1=$(curl -s -H "Authorization: Bearer $GH_TOKEN" "$api/runs?status=in_progress&per_page=1" | python3 -c "import json,sys; print(json.load(sys.stdin).get('total_count',0))")
+            n2=$(curl -s -H "Authorization: Bearer $GH_TOKEN" "$api/runs?status=queued&per_page=1" | python3 -c "import json,sys; print(json.load(sys.stdin).get('total_count',0))")
+            if [ "$n1" = "0" ] && [ "$n2" = "0" ]; then
+              curl -s -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "$api/dispatches" -d '{"ref":"main"}'
+              echo "⚠️ scanner-bot был мёртв — перезапущен сторожем"
+            else
+              echo "scanner-bot жив (running=$n1 queued=$n2)"
+            fi
+          fi
