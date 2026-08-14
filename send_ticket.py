@@ -148,6 +148,10 @@ def next_ticket_number(city_code: str, pipeline_id: int) -> str:
                     nums = _re.findall(rf"WCF26-{city_code}-(\d+)", val)
                     for n_str in nums:
                         n = int(n_str)
+                        # Номера >= 9000 — тестовые/аномальные, в подсчёт max не берём,
+                        # чтобы счётчик не перескочил в 5-значный диапазон (кейс 13.08.2026).
+                        if n >= 9000:
+                            continue
                         if n > max_n:
                             max_n = n
         if len(leads) < 250:
@@ -372,7 +376,7 @@ def ticket_numbers_for_lead(lead: dict, pipe_cfg: dict, qty: int) -> list:
             break
     if existing:
         # парсим "WCF26-ALA-0010; WCF26-ALA-0011; ..." или с запятыми
-        nums = re.findall(r"WCF26-[A-Z]{3}-\d{4}", existing)
+        nums = re.findall(r"WCF26-[A-Z]{3}-\d{4,5}", existing)
         if nums:
             return nums
     # Генерим новые: первый через next_ticket_number, остальные инкрементом
@@ -408,7 +412,7 @@ def process_lead(lead: dict, pipe_cfg: dict, template_html: str) -> None:
                     has_email_id = True
                 break
         if has_email_id:
-            existing_nums = re.findall(r"WCF26-[A-Z]{3}-\d{4}", existing_raw)
+            existing_nums = re.findall(r"WCF26-[A-Z]{3}-\d{4,5}", existing_raw)
             log(f"⏭ #{lead_id}: билеты уже отправлены ({len(existing_nums)} шт) — дотолкну статус, письмо НЕ повторяю")
             st, _ = amo("PATCH", f"/leads/{lead_id}", {"status_id": pipe_cfg["status_sent"]})
             if st in (200, 202):
